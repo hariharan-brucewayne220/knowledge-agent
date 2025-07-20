@@ -1,0 +1,41 @@
+# Core AI/ML libraries
+openai>=1.0.0
+dspy-ai>=2.4.0
+
+# Document processing
+PyPDF2>=3.0.0
+python-docx>=0.8.11
+
+# Video/Audio processing
+yt-dlp>=2023.12.30
+openai-whisper>=20231117
+
+# Vector database and embeddings
+chromadb>=0.4.0
+sentence-transformers>=2.2.2
+
+# Web framework
+fastapi>=0.104.0
+uvicorn>=0.24.0
+websockets>=12.0
+
+# Frontend
+streamlit>=1.28.0  # For quick demo UI
+
+# Data processing
+pandas>=2.1.0
+numpy>=1.24.0
+
+# Async processing
+asyncio
+aiohttp>=3.9.0
+
+# Utilities
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+loguru>=0.7.0
+
+# Development
+pytest>=7.4.0
+black>=23.0.0
+isort>=5.12.0

@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KnowledgeAgent Research Assistant</title>
+    <link rel="stylesheet" href="/static/styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-brain"></i>
+                    <span>KnowledgeAgent</span>
+                    <span class="subtitle">Research Assistant</span>
+                </div>
+                <div class="header-actions">
+                    <button class="btn btn-secondary" id="clear-btn">
+                        <i class="fas fa-trash"></i>
+                        Clear
+                    </button>
+                    <button class="btn btn-secondary" id="settings-btn">
+                        <i class="fas fa-cog"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Container -->
+        <div class="main-container">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <div class="sidebar-content">
+                    <!-- Topic Folders Section (Like ChatGPT History) -->
+                    <div class="sidebar-section topic-folders">
+                        <div class="section-header">
+                            <h3><i class="fas fa-folder"></i> Research Topics</h3>
+                            <button class="btn btn-sm" id="refresh-topics" title="Refresh Topics">
+                                <i class="fas fa-sync-alt"></i>
+                            </button>
+                        </div>
+                        <div id="topic-folders" class="topic-folders-list">
+                            <div class="loading-topics">
+                                <i class="fas fa-spinner fa-spin"></i> Loading topics...
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload Section -->
+                    <div class="sidebar-section">
+                        <h3><i class="fas fa-file-upload"></i> Upload PDFs</h3>
+                        <div class="upload-area" id="pdf-upload">
+                            <input type="file" id="pdf-input" accept=".pdf" multiple style="display: none;">
+                            <div class="upload-placeholder">
+                                <i class="fas fa-cloud-upload-alt"></i>
+                                <p>Drop PDF files here or click to upload</p>
+                            </div>
+                        </div>
+                        <div id="uploaded-files" class="uploaded-files"></div>
+                    </div>
+
+                    <!-- Quick Actions -->
+                    <div class="sidebar-section">
+                        <h3><i class="fas fa-bolt"></i> Quick Actions</h3>
+                        <div class="quick-actions">
+                            <button class="action-btn" id="view-all-content">
+                                <i class="fas fa-list"></i> View All Content
+                            </button>
+                            <button class="action-btn" id="cross-topic-search">
+                                <i class="fas fa-search"></i> Cross-Topic Search
+                            </button>
+                            <button class="action-btn" id="export-library">
+                                <i class="fas fa-download"></i> Export Library
+                            </button>
+                            <button class="action-btn danger" id="delete-all-data">
+                                <i class="fas fa-trash"></i> Delete All Data
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- System Status -->
+                    <div class="sidebar-section">
+                        <h3><i class="fas fa-info-circle"></i> System Status</h3>
+                        <div id="system-status" class="system-status">
+                            <div class="status-item">
+                                <span class="status-label">Research Engine:</span>
+                                <span class="status-value loading">Checking...</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Topics Discovered:</span>
+                                <span class="status-value" id="topic-count">0</span>
+                            </div>
+                            <div class="status-item">
+                                <span class="status-label">Content Items:</span>
+                                <span class="status-value" id="content-count">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- Chat Area -->
+            <main class="chat-area">
+                <div class="messages-container" id="messages">
+                    <!-- Welcome Message -->
+                    <div class="message assistant-message">
+                        <div class="message-avatar">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <div class="message-content">
+                            <div class="message-text">
+                                <h3>Welcome to KnowAgent Research Assistant!</h3>
+                                <p>I'm powered by the KnowAgent (2024) research paper architecture with knowledge-augmented planning to prevent AI hallucinations.</p>
+                                
+                                <div class="features-grid">
+                                    <div class="feature">
+                                        <i class="fas fa-file-pdf"></i>
+                                        <span>PDF Analysis</span>
+                                    </div>
+                                    <div class="feature">
+                                        <i class="fab fa-youtube"></i>
+                                        <span>YouTube Processing</span>
+                                    </div>
+                                    <div class="feature">
+                                        <i class="fas fa-search"></i>
+                                        <span>Semantic Search</span>
+                                    </div>
+                                    <div class="feature">
+                                        <i class="fas fa-quote-right"></i>
+                                        <span>Citation Extraction</span>
+                                    </div>
+                                </div>
+
+                                <p><strong>How to use:</strong></p>
+                                <ul>
+                                    <li>Upload PDF files using the sidebar</li>
+                                    <li>Paste YouTube links directly in your message</li>
+                                    <li>Ask research questions about your content</li>
+                                    <li>I'll extract, analyze, and provide intelligent answers</li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Input Area -->
+                <div class="input-area">
+                    <div class="input-container">
+                        <div class="input-wrapper">
+                            <textarea 
+                                id="message-input" 
+                                placeholder="Ask me anything about your research materials. You can paste YouTube links and text together..."
+                                rows="1"
+                                maxlength="4000"
+                            ></textarea>
+                            <div class="input-actions">
+                                <button class="btn btn-primary" id="send-btn" disabled>
+                                    <i class="fas fa-paper-plane"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="input-footer">
+                            <span class="char-count">0 / 4000</span>
+                            <span class="input-hint">
+                                <i class="fas fa-lightbulb"></i>
+                                Tip: Paste YouTube links and text together for comprehensive analysis
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </main>
+
+            <!-- Research Connections Panel -->
+            <div id="research-connections-panel" class="research-connections-panel">
+                <div class="connections-placeholder">
+                    <i class="fas fa-network-wired"></i>
+                    <p>Select a topic to see research connections</p>
+                    <small>Click on any topic in the sidebar to analyze contradictions, confirmations, extensions, and research gaps</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div id="loading-overlay" class="loading-overlay" style="display: none;">
+            <div class="loading-content">
+                <div class="loading-spinner"></div>
+                <h3>Processing your research query...</h3>
+                <p id="loading-status">Initializing KnowAgent...</p>
+                <div class="loading-steps">
+                    <div class="step" id="step-parsing"><i class="fas fa-search"></i> Parsing input</div>
+                    <div class="step" id="step-planning"><i class="fas fa-route"></i> Creating research plan</div>
+                    <div class="step" id="step-executing"><i class="fas fa-cogs"></i> Executing analysis</div>
+                    <div class="step" id="step-synthesizing"><i class="fas fa-magic"></i> Synthesizing results</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal for Settings -->
+        <div id="settings-modal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3>Settings</h3>
+                    <button class="close-btn" id="close-settings">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="setting-group">
+                        <label>OpenAI API Key (Optional)</label>
+                        <input type="password" id="openai-api-key" placeholder="sk-your-openai-api-key-here">
+                        <small>For enhanced GPT-powered synthesis. Leave empty to use local models (free)</small>
+                    </div>
+                    <div class="setting-group">
+                        <label>YouTube API Key (Optional)</label>
+                        <input type="password" id="youtube-api-key" placeholder="For enhanced YouTube transcript access">
+                        <small>Leave empty to use local Whisper transcription</small>
+                    </div>
+                    <div class="setting-group">
+                        <label>Enhanced Features</label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="use-enhanced-knowagent" checked> 
+                            Use Enhanced KnowAgent Planning
+                        </label>
+                        <small>Enable structured research planning and action graphs</small>
+                    </div>
+                    <div class="setting-group">
+                        <label>Cache Settings</label>
+                        <button class="btn btn-secondary" id="clear-cache">Clear Cache</button>
+                        <small>Clear all cached research results</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

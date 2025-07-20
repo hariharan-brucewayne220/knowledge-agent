@@ -1,0 +1,67 @@
+# Virtual Environment
+myenv/
+venv/
+env/
+ENV/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Uploads (if you don't want to track uploaded files)
+uploads/*.pdf
+uploads/*.doc
+uploads/*.docx
+
+# Vector database
+knowledgeagent_vectordb/
+
+# Claude settings
+.claude/
+
+# Official KnowAgent repository (separate git repo)
+official-knowagent/ 
