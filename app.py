@@ -50,7 +50,7 @@ youtube_agent = None
 cache_client = None
 
 # OpenAI API configuration
-OPENAI_API_KEY = "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"
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY');
 USE_ENHANCED_EXECUTOR = True  # Re-enabled - hallucination fixed
 
 # Cache setup
