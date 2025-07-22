@@ -21,6 +21,7 @@ class ContentItem:
     chunks: List[Dict[str, Any]]  # Text chunks with embeddings
     metadata: Dict[str, Any]
     created_at: float
+    upload_timestamp: Optional[float] = None  # Optional for backward compatibility
     
 class SimpleContentStore:
     """
@@ -59,7 +60,7 @@ class SimpleContentStore:
         self.content_items[content_id] = content_item
         self._save_content_index()
         
-        print(f"📄 Added PDF: '{title}' with {len(chunks)} chunks")
+        print(f"Added PDF: '{title}' with {len(chunks)} chunks")
         return content_id
     
     def add_youtube_content(self, url: str, title: str, chunks: List[Dict], metadata: Dict) -> str:
@@ -81,7 +82,7 @@ class SimpleContentStore:
         self.content_items[content_id] = content_item
         self._save_content_index()
         
-        print(f"🎥 Added YouTube: '{title}' with {len(chunks)} chunks")
+        print(f"Added YouTube: '{title}' with {len(chunks)} chunks")
         return content_id
     
     def search_content_by_name(self, search_term: str) -> List[ContentItem]:
@@ -95,7 +96,7 @@ class SimpleContentStore:
             if pattern.search(content_item.title):
                 matching_items.append(content_item)
         
-        print(f"🔍 Found {len(matching_items)} items matching '{search_term}':")
+        print(f"Found {len(matching_items)} items matching '{search_term}':")
         for item in matching_items:
             print(f"  - {item.content_type.upper()}: {item.title}")
         
@@ -130,9 +131,9 @@ class SimpleContentStore:
         existing_items = self.search_content_by_name(search_term)
         existing_chunks = self.get_content_chunks([item.id for item in existing_items])
         
-        print(f"🔬 Analyzing new information about '{search_term}'")
-        print(f"📚 Existing content: {len(existing_chunks)} chunks from {len(existing_items)} sources")
-        print(f"🆕 New content: {len(new_content_chunks)} chunks")
+        print(f"Analyzing new information about '{search_term}'")
+        print(f"Existing content: {len(existing_chunks)} chunks from {len(existing_items)} sources")
+        print(f"New content: {len(new_content_chunks)} chunks")
         
         # For now, simple text-based comparison
         # TODO: Use embeddings for semantic similarity
@@ -217,10 +218,10 @@ class SimpleContentStore:
                     content_item = ContentItem(**item_data)
                     self.content_items[content_item.id] = content_item
                 
-                print(f"📂 Loaded {len(self.content_items)} content items from storage")
+                print(f"Loaded {len(self.content_items)} content items from storage")
                 
             except Exception as e:
-                print(f"⚠️ Error loading content index: {e}")
+                print(f"Warning: Error loading content index: {e}")
                 self.content_items = {}
     
     def _save_content_index(self):
@@ -235,7 +236,7 @@ class SimpleContentStore:
                 json.dump(data, f, indent=2)
                 
         except Exception as e:
-            print(f"⚠️ Error saving content index: {e}")
+            print(f"Warning: Error saving content index: {e}")
 
 # Test the simple content store
 if __name__ == "__main__":

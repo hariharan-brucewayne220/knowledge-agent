@@ -413,6 +413,48 @@ class KnowledgeAgentApp {
                     <div class="message-text">${this.escapeHtml(answer.answer_summary).replace(/\n/g, '<br>')}</div>
                 </div>
 
+                ${answer.source_provenance && answer.source_provenance.length > 0 ? `
+                <div class="result-section">
+                    <h4><i class="fas fa-link"></i> Source Provenance</h4>
+                    <div class="source-citations">
+                        ${answer.source_provenance.map((source, index) => `
+                        <div class="source-citation">
+                            <div class="source-header">
+                                <span class="source-number">[${index + 1}]</span>
+                                <span class="source-title">${this.escapeHtml(source.source_id || 'Unknown Source')}</span>
+                                <span class="source-type badge">${source.source_type || 'unknown'}</span>
+                            </div>
+                            ${source.specific_reference ? `
+                            <div class="source-reference">
+                                <i class="fas fa-bookmark"></i> ${this.escapeHtml(source.specific_reference)}
+                            </div>
+                            ` : ''}
+                            ${source.content_excerpt ? `
+                            <div class="source-excerpt">
+                                <i class="fas fa-quote-left"></i>
+                                "${this.escapeHtml(source.content_excerpt)}"
+                            </div>
+                            ` : ''}
+                            ${source.relevance ? `
+                            <div class="source-relevance">
+                                <i class="fas fa-info-circle"></i> ${this.escapeHtml(source.relevance)}
+                            </div>
+                            ` : ''}
+                        </div>
+                        `).join('')}
+                    </div>
+                </div>
+                ` : ''}
+
+                ${answer.reasoning_steps && answer.reasoning_steps.length > 0 ? `
+                <div class="result-section">
+                    <h4><i class="fas fa-brain"></i> Reasoning Steps</h4>
+                    <ol class="reasoning-steps">
+                        ${answer.reasoning_steps.map(step => `<li>${this.escapeHtml(step)}</li>`).join('')}
+                    </ol>
+                </div>
+                ` : ''}
+
                 ${answer.next_steps && answer.next_steps.length > 0 ? `
                 <div class="result-section">
                     <h4><i class="fas fa-arrow-right"></i> Suggested Next Steps</h4>

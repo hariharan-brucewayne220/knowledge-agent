@@ -50,7 +50,8 @@ youtube_agent = None
 cache_client = None
 
 # OpenAI API configuration
-OPENAI_API_KEY = os.getenv('OPENAI_API_KEY');
+OPENAI_API_KEY = ""
+
 USE_ENHANCED_EXECUTOR = True  # Re-enabled - hallucination fixed
 
 # Cache setup
@@ -493,14 +494,20 @@ async def process_youtube_to_database(youtube_url: str):
             chunks.append(chunk)
         
         # Store video in vector database with topic classification
+        # First, get embeddings for the segments
+        from sentence_transformers import SentenceTransformer
+        embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
+        
+        segment_texts = [segment.get('text', '') for segment in segments]
+        embeddings = embedding_model.encode(segment_texts)
+        
         success = vector_store.store_video_transcript(
             video_id=video_id,
-            title=video_title,
-            url=youtube_url,
-            transcript_text=transcript_text,
             segments=segments,
-            video_info=video_info,
+            embeddings=embeddings,
             metadata={
+                "title": video_title,
+                "url": youtube_url,
                 "processing_method": "captions" if captions_result.success else "transcription",
                 "total_segments": len(segments),
                 "transcript_length": len(transcript_text)
@@ -543,16 +550,32 @@ async def execute_research(data: dict, background_tasks: BackgroundTasks):
         
         print(f"🔍 Executing smart research query: {query}")
         
-        # Use simple smart routing to find relevant content
+        # Use NER-based fuzzy routing for intelligent content discovery
+        from storage.ner_fuzzy_router import NERFuzzyRouter
         from storage.simple_smart_router import SimpleSmartRouter
-        from storage.simple_content_store import SimpleContentStore
+        from storage.unified_content_store import UnifiedContentStore
         
-        # Initialize simple router
-        content_store = SimpleContentStore()
-        simple_router = SimpleSmartRouter(content_store)
+        # Initialize content store
+        content_store = UnifiedContentStore()
         
-        # Route query to find relevant content
-        relevant_pdfs, relevant_videos, explanation = simple_router.route_query(query)
+        # Try Enhanced NER-based fuzzy router first (most intelligent)
+        try:
+            from storage.enhanced_ner_fuzzy_router import EnhancedNERFuzzyRouter
+            enhanced_router = EnhancedNERFuzzyRouter(content_store)
+            relevant_pdfs, relevant_videos, explanation = enhanced_router.route_query(query)
+            print(f"📊 Enhanced NER routing: {explanation}")
+        except Exception as e:
+            print(f"⚠️ Enhanced router failed, falling back to standard NER router: {e}")
+            # Fallback to standard NER router
+            try:
+                ner_router = NERFuzzyRouter(content_store)
+                relevant_pdfs, relevant_videos, explanation = ner_router.route_query(query)
+                print(f"📊 NER fuzzy routing: {explanation}")
+            except Exception as e2:
+                print(f"⚠️ NER router failed, falling back to simple router: {e2}")
+                # Final fallback to simple router
+                simple_router = SimpleSmartRouter(content_store)
+                relevant_pdfs, relevant_videos, explanation = simple_router.route_query(query)
         
         # Override provided files with smart-detected content
         if relevant_pdfs or relevant_videos:
@@ -579,7 +602,7 @@ async def execute_research(data: dict, background_tasks: BackgroundTasks):
         # Execute research with enhanced executor if available
         if USE_ENHANCED_EXECUTOR and enhanced_research_executor:
             print("[RESEARCH] Using Enhanced KnowledgeAgent...")
-            use_openai = data.get("use_openai", True) and enhanced_research_executor.openai_synthesizer.is_available()
+            use_openai = data.get("use_openai", False)  # Force fallback to prevent hallucination
             
             enhanced_result = await enhanced_research_executor.execute_research_query(
                 query=query,
@@ -589,12 +612,24 @@ async def execute_research(data: dict, background_tasks: BackgroundTasks):
             )
             
             # Convert enhanced result to compatible format
+            # Extract source citations from synthesis result
+            source_citations = []
+            reasoning_steps = []
+            
+            if hasattr(enhanced_result.synthesis_result, 'sources_used'):
+                source_citations = enhanced_result.synthesis_result.sources_used
+                
+            if hasattr(enhanced_result.synthesis_result, 'reasoning_steps'):
+                reasoning_steps = enhanced_result.synthesis_result.reasoning_steps
+                
             result = {
                 "final_answer": {
                     "answer_summary": enhanced_result.final_answer,
                     "research_confidence": enhanced_result.research_confidence,
                     "sources_processed": enhanced_result.sources_processed,
-                    "next_steps": enhanced_result.next_steps
+                    "next_steps": enhanced_result.next_steps,
+                    "source_provenance": source_citations,
+                    "reasoning_steps": reasoning_steps
                 },
                 "execution": {
                     "total_steps": len(enhanced_result.action_path.steps),
@@ -668,9 +703,9 @@ async def get_status():
 async def get_simple_content():
     """Get content using simple title-based organization"""
     try:
-        from storage.simple_content_store import SimpleContentStore
+        from storage.unified_content_store import UnifiedContentStore
         
-        content_store = SimpleContentStore()
+        content_store = UnifiedContentStore()
         all_content = content_store.get_all_content()
         storage_stats = content_store.get_storage_stats()
         
@@ -704,36 +739,100 @@ async def get_simple_content():
 
 @app.post("/api/search-content")
 async def search_content(data: dict):
-    """Search content by title using regex"""
+    """Enhanced search content using trie-based search"""
     try:
         search_term = data.get("search_term", "")
+        max_results = data.get("max_results", 10)
+        
         if not search_term:
             raise HTTPException(status_code=400, detail="Search term is required")
         
-        from storage.simple_content_store import SimpleContentStore
+        # Use enhanced search service
+        from search.search_service import KnowledgeAgentSearchService
         
-        content_store = SimpleContentStore()
-        matching_items = content_store.search_content_by_name(search_term)
+        search_service = KnowledgeAgentSearchService()
+        enhanced_results = search_service.search(search_term, max_results)
         
+        # Format results for frontend
         results = []
-        for item in matching_items:
+        for result in enhanced_results:
             results.append({
-                "id": item.id,
-                "title": item.title,
-                "type": item.content_type,
-                "source_path": item.source_path,
-                "chunks_count": len(item.chunks),
-                "created_at": item.created_at
+                "id": result.content_id,
+                "title": result.title,
+                "type": result.content_type,
+                "source_path": result.source_path,
+                "match_score": round(result.match_score, 3),
+                "matched_terms": result.matched_terms,
+                "preview": result.preview,
+                "routing_strategy": result.routing_strategy,
+                "confidence": round(result.confidence, 3),
+                "combined_score": round(result.match_score * result.confidence, 3)
             })
         
         return {
             "search_term": search_term,
             "results": results,
-            "total_found": len(results)
+            "total_found": len(results),
+            "search_type": "enhanced_trie",
+            "statistics": search_service.get_search_statistics()
         }
         
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Enhanced search error: {e}")
+        # Fallback to simple search
+        try:
+            from storage.unified_content_store import UnifiedContentStore
+            
+            content_store = UnifiedContentStore()
+            matching_items = content_store.search_content_by_name(search_term)
+            
+            results = []
+            for item in matching_items:
+                results.append({
+                    "id": item.id,
+                    "title": item.title,
+                    "type": item.content_type,
+                    "source_path": item.source_path,
+                    "chunks_count": len(item.chunks),
+                    "created_at": item.created_at,
+                    "match_score": 1.0,
+                    "routing_strategy": "fallback_regex",
+                    "confidence": 0.8
+                })
+            
+            return {
+                "search_term": search_term,
+                "results": results,
+                "total_found": len(results),
+                "search_type": "fallback_regex"
+            }
+        except Exception as fallback_error:
+            raise HTTPException(status_code=500, detail=str(fallback_error))
+
+@app.post("/api/search-suggestions")
+async def get_search_suggestions(data: dict):
+    """Get search query suggestions based on partial input"""
+    try:
+        partial_query = data.get("partial_query", "")
+        max_suggestions = data.get("max_suggestions", 5)
+        
+        if not partial_query:
+            return {"suggestions": []}
+        
+        from search.search_service import KnowledgeAgentSearchService
+        
+        search_service = KnowledgeAgentSearchService()
+        suggestions = search_service.suggest_queries(partial_query, max_suggestions)
+        
+        return {
+            "partial_query": partial_query,
+            "suggestions": suggestions,
+            "total_suggestions": len(suggestions)
+        }
+        
+    except Exception as e:
+        print(f"Search suggestions error: {e}")
+        return {"suggestions": []}
 
 def generate_clean_content_title(content_item, source_metadata=None):
     """Generate clean, user-friendly title for content items"""
@@ -798,9 +897,29 @@ async def get_topics():
         from storage.vector_store import KnowledgeAgentVectorStore
         from classification.topic_classifier import DynamicTopicClassifier
         
-        # Initialize vector store and topic classifier
-        vector_store = KnowledgeAgentVectorStore("knowledgeagent_vectordb")
-        topic_classifier = DynamicTopicClassifier(storage_path="topic_classifications")
+        # Initialize vector store and topic classifier with error handling
+        try:
+            vector_store = KnowledgeAgentVectorStore("knowledgeagent_vectordb")
+        except Exception as ve:
+            print(f"Vector store initialization error: {ve}")
+            # Fall back to simple content store
+            from storage.unified_content_store import UnifiedContentStore
+            return await get_simple_content()
+        
+        try:
+            topic_classifier = DynamicTopicClassifier(storage_path="topic_classifications")
+        except Exception as te:
+            print(f"Topic classifier initialization error: {te}")
+            # Return basic structure if topic classifier fails
+            return {
+                "topics": [],
+                "stats": {
+                    "total_topics": 0,
+                    "total_content": 0,
+                    "cross_topic_items": 0,
+                    "storage_stats": {}
+                }
+            }
         
         # Get topic hierarchy
         topic_hierarchy = topic_classifier.get_topic_hierarchy()
@@ -1152,8 +1271,8 @@ def extract_video_id(url: str) -> Optional[str]:
 def is_video_already_processed(video_id: str) -> bool:
     """Check if YouTube video is already processed"""
     try:
-        from storage.simple_content_store import SimpleContentStore
-        content_store = SimpleContentStore()
+        from storage.unified_content_store import UnifiedContentStore
+        content_store = UnifiedContentStore()
         all_content = content_store.get_all_content()
         
         for content_item in all_content:

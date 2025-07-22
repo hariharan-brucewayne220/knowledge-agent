@@ -167,25 +167,56 @@ class OpenAISynthesizer:
         if pdf_results:
             context_parts.append("=== PDF Document Analysis ===")
             for i, pdf_result in enumerate(pdf_results[:3]):  # Limit to top 3
-                context_parts.append(f"PDF {i+1}: {pdf_result.get('title', 'Unknown Document')}")
-                context_parts.append(f"Content: {pdf_result.get('content', '')[:500]}...")
+                title = pdf_result.get('title', 'Unknown Document')
+                source_path = pdf_result.get('source_path', 'Unknown Path')
+                context_parts.append(f"PDF {i+1}: {title}")
+                context_parts.append(f"Source ID: {title}")
+                context_parts.append(f"File Path: {source_path}")
+                context_parts.append(f"Source Type: pdf")
+                
+                # Provide much more content for analysis (up to 8000 chars for meaningful analysis)
+                full_content = pdf_result.get('content', '')
+                if len(full_content) > 8000:
+                    # Take beginning, middle, and end sections for comprehensive view
+                    beginning = full_content[:3000]
+                    middle_start = len(full_content) // 2 - 1500
+                    middle = full_content[middle_start:middle_start + 3000]
+                    end = full_content[-2000:]
+                    content_summary = f"{beginning}\n\n[... MIDDLE SECTION ...]\n\n{middle}\n\n[... END SECTION ...]\n\n{end}"
+                    context_parts.append(f"Content Structure: [BEGINNING SECTION] + [MIDDLE SECTION] + [END SECTION]")
+                else:
+                    content_summary = full_content
+                    context_parts.append(f"Content Structure: [FULL DOCUMENT]")
+                
+                context_parts.append(f"Content: {content_summary}")
                 if pdf_result.get('metadata'):
-                    context_parts.append(f"Metadata: {json.dumps(pdf_result['metadata'], indent=2)}")
+                    metadata = pdf_result['metadata']
+                    if 'page_count' in metadata:
+                        context_parts.append(f"Total Pages: {metadata['page_count']}")
+                    if 'chunks_count' in metadata:
+                        context_parts.append(f"Content Chunks: {metadata['chunks_count']}")
+                    context_parts.append(f"Additional Metadata: {json.dumps(metadata, indent=2)}")
                 context_parts.append("")
         
         # Add YouTube results  
         if youtube_results:
             context_parts.append("=== YouTube Video Analysis ===")
             for i, yt_result in enumerate(youtube_results[:3]):  # Limit to top 3
-                context_parts.append(f"Video {i+1}: {yt_result.get('title', 'Unknown Video')}")
+                title = yt_result.get('title', 'Unknown Video')
+                url = yt_result.get('url', 'Unknown URL')
+                context_parts.append(f"Video {i+1}: {title}")
+                context_parts.append(f"Source ID: {title}")
+                context_parts.append(f"URL: {url}")
+                context_parts.append(f"Source Type: youtube")
                 
                 # Smart transcript chunking to fit within token limits
                 full_transcript = yt_result.get('transcript', '')
                 transcript_summary = self._create_transcript_summary(full_transcript)
                 context_parts.append(f"Transcript Summary: {transcript_summary}")
+                context_parts.append(f"Note: Reference specific timestamps when citing this video (format: 'at 3:45' or '2:15-3:30')")
                 
-                if yt_result.get('url'):
-                    context_parts.append(f"URL: {yt_result['url']}")
+                if yt_result.get('duration'):
+                    context_parts.append(f"Video Duration: {yt_result['duration']}")
                 context_parts.append("")
         
         # Add vector database results
@@ -251,30 +282,41 @@ class OpenAISynthesizer:
     
     def _create_system_prompt(self) -> str:
         """Create system prompt for OpenAI"""
-        return """You are an advanced research assistant that synthesizes information from multiple sources to provide comprehensive, accurate answers.
+        return """You are an advanced research assistant that synthesizes information from multiple sources to provide comprehensive, detailed, and thorough answers.
 
 Your capabilities:
-- Analyze PDF documents for academic and technical content
+- Analyze PDF documents for academic and technical content with deep comprehension
 - Process YouTube video transcripts for multimedia insights  
 - Query knowledge bases for relevant background information
-- Synthesize cross-modal information into coherent answers
+- Synthesize cross-modal information into coherent, detailed explanations
 
 Guidelines:
 1. ONLY answer based on the provided source materials - do not use external knowledge
-2. If information is not in the provided sources, explicitly state "This information is not available in the provided sources"
-3. Always cite the specific source and line/section where you found each piece of information
-4. Never make up facts, equations, quotes, or details not explicitly mentioned in the sources
-5. If asked for specific details (like equations, quotes, numbers) that aren't in the sources, say so clearly
-6. Provide confidence scores based only on the evidence available in the sources
-7. Acknowledge limitations and uncertainties
-8. Distinguish between different types of sources (academic papers, videos, general knowledge)
+2. Provide COMPREHENSIVE and DETAILED analysis - don't give brief summaries
+3. Extract and explain key concepts, theories, methodologies, and findings from the sources
+4. Include specific details, examples, and explanations found in the source materials
+5. Always cite the specific source where you found each piece of information
+6. Never make up facts, equations, quotes, or details not explicitly mentioned in the sources
+7. If asked for specific details (like equations, quotes, numbers) that aren't in the sources, say so clearly
+8. Provide detailed reasoning steps that show your analytical process
+9. Acknowledge limitations and uncertainties, but provide rich analysis of what IS available
+10. Distinguish between different types of sources (academic papers, videos, general knowledge)
+11. Your answer should be substantive and informative - aim for depth and comprehensiveness
 
 Format your response as JSON with these fields:
 {
-  "answer": "Comprehensive answer to the query",
+  "answer": "DETAILED and COMPREHENSIVE answer to the query with thorough analysis and explanation",
   "confidence_score": 0.85,
-  "reasoning_steps": ["Step 1", "Step 2", "Step 3"],
-  "sources_cited": ["Source 1", "Source 2"],
+  "reasoning_steps": ["Detailed step 1", "Detailed step 2", "Detailed step 3"],
+  "sources_cited": [
+    {
+      "source_id": "document_title_or_video_title",
+      "source_type": "pdf|youtube", 
+      "specific_reference": "page 5, section 2.1" or "timestamp 3:45-4:20",
+      "content_excerpt": "exact quote or key finding from source",
+      "relevance": "how this source supports the answer"
+    }
+  ],
   "limitations": "Any limitations or uncertainties",
   "follow_up_suggestions": ["Suggestion 1", "Suggestion 2"]
 }"""
@@ -286,14 +328,23 @@ Format your response as JSON with these fields:
 Available Information:
 {context}
 
-Please synthesize this information to provide a comprehensive answer to the research query. 
+Please synthesize this information to provide a COMPREHENSIVE, DETAILED, and THOROUGH answer to the research query. 
 
-CRITICAL RULES:
+CRITICAL REQUIREMENTS:
+- Provide a detailed, substantive analysis that fully explores the available content
+- Extract and explain key concepts, theories, methods, findings, and insights from the sources
+- Include specific examples, details, and explanations found in the source materials
+- Your answer should be rich in content and informative - avoid brief or superficial responses
 - Only use information explicitly provided in the sources above
 - If information is not in the sources, state "This information is not available in the provided sources"
-- Cite the specific source and section for every fact you mention
+- For EVERY fact, number, or claim you mention, provide specific source citation with:
+  * PDF sources: Include page numbers, section titles, or chunk identifiers
+  * YouTube sources: Include timestamps (e.g., "at 3:45" or "between 2:15-3:30")
+  * Always include exact quotes or specific data points from the source
 - Do not make up equations, quotes, numbers, or any details not in the sources
-- If asked for specific details not in the sources, clearly state they are not available"""
+- If asked for specific details not in the sources, clearly state they are not available
+- In the sources_cited array, provide detailed provenance for each source used
+- Aim for depth and comprehensiveness rather than brevity"""
     
     def _parse_synthesis_response(self, response: Dict[str, Any], query: str) -> SynthesisResult:
         """Parse OpenAI response into structured result"""
@@ -402,9 +453,25 @@ class FallbackSynthesizer:
             all_content.append(vector.get('content', ''))
             sources.append(f"Knowledge Base (Score: {vector.get('score', 'N/A')})")
         
-        # Simple synthesis
+        # Simple synthesis with query-aware content selection
         combined_content = "\n".join(all_content)
-        answer = f"Based on the available sources:\n\n{combined_content[:1000]}..."
+        
+        # If content is long, try to show most relevant parts first
+        if len(combined_content) > 2000:
+            # Look for query-relevant content first
+            query_words = query.lower().split()
+            content_parts = []
+            
+            for content in all_content:
+                if any(word in content.lower() for word in query_words if len(word) > 3):
+                    content_parts.insert(0, content)  # Put relevant content first
+                else:
+                    content_parts.append(content)
+            
+            combined_content = "\n\n".join(content_parts)
+            answer = f"Based on the available sources:\n\n{combined_content[:2000]}..."
+        else:
+            answer = f"Based on the available sources:\n\n{combined_content}"
         
         return SynthesisResult(
             answer=answer,

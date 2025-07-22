@@ -27,14 +27,35 @@ class KnowledgeAgentVectorStore:
         self.persist_directory = Path(persist_directory)
         self.persist_directory.mkdir(exist_ok=True)
         
-        # Initialize ChromaDB with persistence
-        self.client = chromadb.PersistentClient(
-            path=str(self.persist_directory),
-            settings=Settings(
-                anonymized_telemetry=False,
-                is_persistent=True
+        # Initialize ChromaDB with persistence and explicit settings to avoid encoding issues
+        try:
+            # Set environment variable to avoid .env file reading issues
+            os.environ['CHROMA_ENV_FILE'] = ''
+            
+            self.client = chromadb.PersistentClient(
+                path=str(self.persist_directory),
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    is_persistent=True,
+                    allow_reset=True
+                )
             )
-        )
+        except UnicodeDecodeError as e:
+            print(f"Unicode error in ChromaDB initialization: {e}")
+            # Try to create a fresh client without existing data
+            import shutil
+            if self.persist_directory.exists():
+                shutil.rmtree(self.persist_directory)
+                self.persist_directory.mkdir(exist_ok=True)
+            
+            self.client = chromadb.PersistentClient(
+                path=str(self.persist_directory),
+                settings=Settings(
+                    anonymized_telemetry=False,
+                    is_persistent=True,
+                    allow_reset=True
+                )
+            )
         
         # Create collections for different content types
         self.pdf_collection = self._get_or_create_collection("pdf_documents")
@@ -104,15 +125,15 @@ class KnowledgeAgentVectorStore:
                 if topic_assignments:
                     content_id = f"{document_id}_chunk_{i}"
                     if content_id in topic_assignments:
-                        chunk_metadata["topics"] = topic_assignments[content_id]
+                        chunk_metadata["topics"] = ",".join(topic_assignments[content_id])
                         chunk_metadata["topic_count"] = len(topic_assignments[content_id])
                     else:
-                        chunk_metadata["topics"] = []
+                        chunk_metadata["topics"] = ""
                         chunk_metadata["topic_count"] = 0
                 
                 # Include topics from chunk if available
                 if 'topics' in chunk:
-                    chunk_metadata["topics"] = chunk['topics']
+                    chunk_metadata["topics"] = ",".join(chunk['topics'])
                     chunk_metadata["topic_count"] = len(chunk['topics'])
                 
                 chunk_metadatas.append(chunk_metadata)
@@ -178,15 +199,15 @@ class KnowledgeAgentVectorStore:
                 if topic_assignments:
                     content_id = f"{video_id}_segment_{i}"
                     if content_id in topic_assignments:
-                        segment_metadata["topics"] = topic_assignments[content_id]
+                        segment_metadata["topics"] = ",".join(topic_assignments[content_id])
                         segment_metadata["topic_count"] = len(topic_assignments[content_id])
                     else:
-                        segment_metadata["topics"] = []
+                        segment_metadata["topics"] = ""
                         segment_metadata["topic_count"] = 0
                 
                 # Include topics from segment if available
                 if 'topics' in segment:
-                    segment_metadata["topics"] = segment['topics']
+                    segment_metadata["topics"] = ",".join(segment['topics'])
                     segment_metadata["topic_count"] = len(segment['topics'])
                 
                 segment_metadatas.append(segment_metadata)
@@ -286,8 +307,8 @@ class KnowledgeAgentVectorStore:
         Returns:
             Dictionary with 'documents' and 'videos' results from the topic
         """
-        # Filter by topic
-        topic_filter = {"topics": {"$in": [topic_id]}}
+        # Filter by topic (topics are stored as comma-separated strings)
+        topic_filter = {"topics": {"$contains": topic_id}}
         
         if query_embedding is not None:
             # Semantic search within topic
@@ -321,7 +342,8 @@ class KnowledgeAgentVectorStore:
             )
             
             if results['metadatas']:
-                return results['metadatas'][0].get('topics', [])
+                topics_str = results['metadatas'][0].get('topics', '')
+                return topics_str.split(',') if topics_str else []
             
             # Try video collection
             results = self.video_collection.get(
@@ -330,7 +352,8 @@ class KnowledgeAgentVectorStore:
             )
             
             if results['metadatas']:
-                return results['metadatas'][0].get('topics', [])
+                topics_str = results['metadatas'][0].get('topics', '')
+                return topics_str.split(',') if topics_str else []
             
             return []
             
@@ -348,7 +371,12 @@ class KnowledgeAgentVectorStore:
         Returns:
             Dictionary with 'documents' and 'videos' results
         """
-        topic_filter = {"topics": {"$in": topic_ids}}
+        # Create a filter that matches any of the topic IDs (comma-separated format)
+        if len(topic_ids) == 1:
+            topic_filter = {"topics": {"$contains": topic_ids[0]}}
+        else:
+            # For multiple topics, use OR logic
+            topic_filter = {"$or": [{"topics": {"$contains": topic_id}} for topic_id in topic_ids]}
         
         doc_results = self._get_content_by_filter(self.pdf_collection, topic_filter, 100)
         video_results = self._get_content_by_filter(self.video_collection, topic_filter, 100)
@@ -520,21 +548,25 @@ class KnowledgeAgentVectorStore:
             
             # Analyze PDF topics
             for metadata in pdf_results.get('metadatas', []):
-                topics = metadata.get('topics', [])
+                topics_str = metadata.get('topics', '')
+                topics = topics_str.split(',') if topics_str else []
                 if len(topics) > 1:
                     cross_topic_content += 1
                 for topic in topics:
-                    all_topics.add(topic)
-                    topic_counts[topic] = topic_counts.get(topic, 0) + 1
+                    if topic:  # Skip empty strings
+                        all_topics.add(topic)
+                        topic_counts[topic] = topic_counts.get(topic, 0) + 1
             
             # Analyze video topics  
             for metadata in video_results.get('metadatas', []):
-                topics = metadata.get('topics', [])
+                topics_str = metadata.get('topics', '')
+                topics = topics_str.split(',') if topics_str else []
                 if len(topics) > 1:
                     cross_topic_content += 1
                 for topic in topics:
-                    all_topics.add(topic)
-                    topic_counts[topic] = topic_counts.get(topic, 0) + 1
+                    if topic:  # Skip empty strings
+                        all_topics.add(topic)
+                        topic_counts[topic] = topic_counts.get(topic, 0) + 1
             
             return {
                 "unique_topics": len(all_topics),

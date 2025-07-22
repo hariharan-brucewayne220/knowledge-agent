@@ -22,7 +22,7 @@ from planning.action_graph import (
 from synthesis.openai_synthesizer import OpenAISynthesizer, FallbackSynthesizer
 from agents.pdf_agent import PDFAgent
 from agents.youtube_agent import YouTubeAgent
-from storage.simple_content_store import SimpleContentStore
+from storage.unified_content_store import UnifiedContentStore
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ class EnhancedResearchExecutor:
         self.youtube_agent = YouTubeAgent()
         
         # Initialize simple content store
-        self.content_store = SimpleContentStore()
+        self.content_store = UnifiedContentStore()
         
         # Initialize synthesizers
         self.openai_synthesizer = OpenAISynthesizer(openai_api_key, openai_model)
@@ -238,10 +238,65 @@ class EnhancedResearchExecutor:
                 pdf_results = []
                 for pdf_file in available_resources["pdf_files"]:
                     try:
+                        # Check if PDF is already processed to avoid recursion
+                        from pathlib import Path
+                        pdf_filename = Path(pdf_file).stem
+                        
+                        # Check if this PDF is already in our content store
+                        all_content = self.content_store.get_all_content()
+                        already_processed = any(
+                            item.content_type == 'pdf' and 
+                            (pdf_filename in item.id or pdf_file in str(item.source_path or ''))
+                            for item in all_content
+                        )
+                        
+                        if already_processed:
+                            logger.info(f"⏭️  Using already processed PDF: {pdf_file}")
+                            
+                            # Find the existing content item
+                            existing_item = next(
+                                item for item in all_content
+                                if item.content_type == 'pdf' and 
+                                (pdf_filename in item.id or pdf_file in str(item.source_path or ''))
+                            )
+                            
+                            # Get chunks in the expected format
+                            chunks = existing_item.chunks
+                            if isinstance(chunks, dict) and 'chunks' in chunks:
+                                actual_chunks = chunks['chunks']
+                            else:
+                                actual_chunks = chunks if hasattr(chunks, '__iter__') else []
+                            
+                            # Extract actual text content from chunks
+                            extracted_text = ""
+                            for chunk in actual_chunks:
+                                if hasattr(chunk, 'text'):
+                                    extracted_text += chunk.text + "\n\n"
+                                elif isinstance(chunk, dict) and 'text' in chunk:
+                                    extracted_text += chunk['text'] + "\n\n"
+                                elif isinstance(chunk, str):
+                                    extracted_text += chunk + "\n\n"
+                            
+                            # Create a compatible result format with actual content
+                            pdf_result = {
+                                "title": existing_item.title,
+                                "content": extracted_text,
+                                "content_id": existing_item.id,
+                                "chunks": actual_chunks,
+                                "metadata": existing_item.metadata,
+                                "source_path": pdf_file,
+                                "processing_complete": True,
+                                "reused_existing": True
+                            }
+                            
+                            pdf_results.append(pdf_result)
+                            logger.info(f"✅ Using existing content: '{existing_item.title}'")
+                            continue
+                        
                         logger.info(f"Starting full PDF processing pipeline for: {pdf_file}")
                         
                         # Step 1: Extract text
-                        extract_result = await self.pdf_agent.execute_action("extract_text", {"pdf_path": pdf_file})
+                        extract_result = await self.pdf_agent.execute_action("extract_text", pdf_file)
                         
                         if not extract_result.success:
                             logger.warning(f"PDF text extraction failed for {pdf_file}: {extract_result.error_message}")
@@ -314,11 +369,21 @@ class EnhancedResearchExecutor:
                         
                     except Exception as e:
                         logger.warning(f"PDF processing failed for {pdf_file}: {e}")
+                        # Still add to results even if processing failed, so it gets counted
+                        failed_result = {
+                            "title": Path(pdf_file).stem,
+                            "content": f"Processing failed: {str(e)}",
+                            "metadata": {"error": str(e), "processing_failed": True},
+                            "source_path": pdf_file,
+                            "processing_complete": False
+                        }
+                        pdf_results.append(failed_result)
                         import traceback
                         traceback.print_exc()
                 
                 results["pdf_results"] = pdf_results
-                return f"Fully processed {len(pdf_results)} PDF documents (extraction → chunking → embeddings)"
+                logger.info(f"PDF processing summary: {len(pdf_results)} total PDFs, {len([r for r in pdf_results if r.get('processing_complete', False)])} successful")
+                return f"Processed {len(pdf_results)} PDF documents ({len([r for r in pdf_results if r.get('processing_complete', False)])} successful)"
             else:
                 return "No PDF files to process"
                 
@@ -333,6 +398,63 @@ class EnhancedResearchExecutor:
                 youtube_results = []
                 for youtube_url in available_resources["youtube_urls"]:
                     try:
+                        # Check if YouTube video is already processed to avoid recursion
+                        import re
+                        video_id_match = re.search(r'(?:v=|/)([a-zA-Z0-9_-]{11})', youtube_url)
+                        if video_id_match:
+                            video_id = video_id_match.group(1)
+                            
+                            # Check if this video is already in our content store
+                            all_content = self.content_store.get_all_content()
+                            already_processed = any(
+                                item.content_type == 'youtube' and 
+                                (video_id in item.id or youtube_url in str(item.source_path or ''))
+                                for item in all_content
+                            )
+                            
+                            if already_processed:
+                                logger.info(f"⏭️  Using already processed YouTube video: {video_id}")
+                                
+                                # Find the existing content item
+                                existing_item = next(
+                                    item for item in all_content
+                                    if item.content_type == 'youtube' and 
+                                    (video_id in item.id or youtube_url in str(item.source_path or ''))
+                                )
+                                
+                                # Get chunks in the expected format
+                                chunks = existing_item.chunks
+                                if isinstance(chunks, dict) and 'chunks' in chunks:
+                                    actual_chunks = chunks['chunks']
+                                else:
+                                    actual_chunks = chunks if hasattr(chunks, '__iter__') else []
+                                
+                                # Extract actual transcript content from chunks
+                                extracted_transcript = ""
+                                for chunk in actual_chunks:
+                                    if hasattr(chunk, 'text'):
+                                        extracted_transcript += chunk.text + "\n\n"
+                                    elif isinstance(chunk, dict) and 'text' in chunk:
+                                        extracted_transcript += chunk['text'] + "\n\n"
+                                    elif isinstance(chunk, str):
+                                        extracted_transcript += chunk + "\n\n"
+                                
+                                # Create a compatible result format with actual content
+                                youtube_result = {
+                                    "title": existing_item.title,
+                                    "transcript": extracted_transcript,
+                                    "content_id": existing_item.id,
+                                    "chunks": actual_chunks,
+                                    "metadata": existing_item.metadata,
+                                    "url": youtube_url,
+                                    "processing_complete": True,
+                                    "reused_existing": True
+                                }
+                                
+                                youtube_results.append(youtube_result)
+                                logger.info(f"✅ Using existing content: '{existing_item.title}'")
+                                continue
+                        
                         logger.info(f"Processing YouTube URL: {youtube_url}")
                         
                         # Step 1: Try to get captions first (much faster!)
@@ -408,7 +530,7 @@ class EnhancedResearchExecutor:
                             content_id = self.content_store.add_youtube_content(
                                 url=youtube_url,
                                 title=video_title,
-                                chunks=video_chunks,
+                                transcript_segments=segments,
                                 metadata=content_metadata
                             )
                             
