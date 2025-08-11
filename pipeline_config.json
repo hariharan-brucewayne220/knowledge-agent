@@ -1,0 +1,66 @@
+{
+  "monitored_sources": {
+    "pdf_research_papers": {
+      "type": "pdf_directory",
+      "path": "watched_pdfs/",
+      "enabled": true,
+      "recursive": true,
+      "file_patterns": [
+        "*.pdf"
+      ],
+      "description": "Monitor for new research papers and academic documents"
+    },
+    "pdf_technical_docs": {
+      "type": "pdf_directory",
+      "path": "incoming_documents/",
+      "enabled": true,
+      "recursive": false,
+      "file_patterns": [
+        "*.pdf"
+      ],
+      "description": "Monitor for technical documentation"
+    },
+    "test_pdf_source": {
+      "type": "pdf_directory",
+      "path": "test_watched_pdfs/",
+      "enabled": true,
+      "recursive": true,
+      "file_patterns": [
+        "*.pdf"
+      ]
+    }
+  },
+  "max_concurrent_processors": 3,
+  "discovery_interval": 30,
+  "retry_failed_after": 3600,
+  "youtube_monitoring": {
+    "enabled": true,
+    "check_strategy": "startup_only",
+    "last_youtube_check": null,
+    "check_interval_hours": 24,
+    "api_key": "ENV:YOUTUBE_API_KEY",
+    "sources": {
+      "mit_opencourseware": {
+        "type": "youtube_channel",
+        "channel_id": "UCEBb1b_L6zDS3xTUrIALZOw",
+        "enabled": true,
+        "keywords_filter": ["AI", "machine learning", "computer science"],
+        "min_duration_seconds": 600
+      },
+      "deepmind": {
+        "type": "youtube_channel", 
+        "channel_id": "UCP7jMXSY2xbc3KCAE0MHQ-A",
+        "enabled": true,
+        "keywords_filter": ["AI", "research"],
+        "min_duration_seconds": 300
+      },
+      "ai_research_playlist": {
+        "type": "youtube_playlist",
+        "playlist_id": "YOUR_PLAYLIST_ID_HERE", 
+        "enabled": false,
+        "keywords_filter": ["neural networks", "deep learning"],
+        "min_duration_seconds": 300
+      }
+    }
+  }
+}

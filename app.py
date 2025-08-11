@@ -49,8 +49,12 @@ enhanced_research_executor = None
 youtube_agent = None
 cache_client = None
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv()
+
 # OpenAI API configuration
-OPENAI_API_KEY = ""
+OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
 
 USE_ENHANCED_EXECUTOR = True  # Re-enabled - hallucination fixed
 
@@ -577,32 +581,53 @@ async def execute_research(data: dict, background_tasks: BackgroundTasks):
                 simple_router = SimpleSmartRouter(content_store)
                 relevant_pdfs, relevant_videos, explanation = simple_router.route_query(query)
         
-        # Override provided files with smart-detected content
-        if relevant_pdfs or relevant_videos:
+        # Override provided files with smart-detected content (unless user asks for specific file)
+        specific_file_request = ".pdf" in query.lower() and ("tell me about" in query.lower() or "content in" in query.lower())
+        
+        if (relevant_pdfs or relevant_videos) and not specific_file_request:
             pdf_files = relevant_pdfs
             youtube_urls = relevant_videos
             print(f"📊 Smart routing found: {len(relevant_pdfs)} PDFs, {len(relevant_videos)} videos")
             print(f"📋 {explanation}")
-            
-            # If this is a new YouTube URL, process it immediately
-            if "Direct YouTube URL" in explanation and youtube_urls:
-                new_url = youtube_urls[0]
-                video_id = extract_video_id(new_url)
-                if video_id and not is_video_already_processed(video_id):
-                    print(f"🎥 New YouTube URL detected - processing immediately: {video_id}")
-                    # Process the video immediately rather than in background
-                    # This ensures it's available for the research query
-                    try:
-                        await process_youtube_to_database(new_url)
-                    except Exception as e:
-                        print(f"❌ Failed to process new YouTube URL: {e}")
+        elif specific_file_request:
+            print(f"📄 Specific file request detected - will search for exact file match")
+            # Extract filename from query
+            import re
+            filename_match = re.search(r'"([^"]*\.pdf)"', query.lower())
+            if filename_match:
+                requested_filename = filename_match.group(1)
+                print(f"📄 Looking for specific file: {requested_filename}")
+                # Search content store for exact filename match
+                matching_items = []
+                for item in content_store.get_all_content():
+                    if requested_filename.replace('"', '').replace('.pdf', '').lower() in item.title.lower():
+                        matching_items.append(item.source_path)
+                if matching_items:
+                    pdf_files = matching_items[:1]  # Take first match
+                    print(f"📄 Found matching file: {pdf_files[0]}")
+                else:
+                    print(f"📄 File not found, falling back to smart routing")
+                    pdf_files = relevant_pdfs
         else:
             print("⚠️  No specific content found, using general search")
+            
+        # If this is a new YouTube URL, process it immediately
+        if "Direct YouTube URL" in explanation and youtube_urls:
+            new_url = youtube_urls[0]
+            video_id = extract_video_id(new_url)
+            if video_id and not is_video_already_processed(video_id):
+                print(f"🎥 New YouTube URL detected - processing immediately: {video_id}")
+                # Process the video immediately rather than in background
+                # This ensures it's available for the research query
+                try:
+                    await process_youtube_to_database(new_url)
+                except Exception as e:
+                    print(f"❌ Failed to process new YouTube URL: {e}")
         
         # Execute research with enhanced executor if available
         if USE_ENHANCED_EXECUTOR and enhanced_research_executor:
             print("[RESEARCH] Using Enhanced KnowledgeAgent...")
-            use_openai = data.get("use_openai", False)  # Force fallback to prevent hallucination
+            use_openai = data.get("use_openai", True)  # Enable OpenAI synthesis for better results
             
             enhanced_result = await enhanced_research_executor.execute_research_query(
                 query=query,
@@ -1310,6 +1335,55 @@ async def get_ui_html() -> str:
         </body>
         </html>
         """
+
+# Import and mount pipeline API
+try:
+    from src.pipeline.pipeline_api import pipeline_router
+    app.include_router(pipeline_router)
+    print("[OK] Content Ingestion Pipeline API enabled")
+except ImportError as e:
+    print(f"[WARNING] Pipeline API not available: {e}")
+
+# Auto PDF Processor - runs automatically with server
+auto_processor_task = None
+
+@app.on_event("startup")
+async def startup_event():
+    """Start background services when server starts"""
+    global auto_processor_task
+    
+    # Import the auto processor
+    try:
+        from simple_auto_processor import SimpleAutoProcessor
+        
+        async def run_auto_processor():
+            processor = SimpleAutoProcessor()
+            print("[OK] Auto PDF Processor started - monitoring watched_pdfs/")
+            
+            while True:
+                try:
+                    processed_count = await processor.scan_and_process()
+                    if processed_count > 0:
+                        print(f"[AUTO] Processed {processed_count} new PDF files")
+                    await asyncio.sleep(10)  # Check every 10 seconds
+                except Exception as e:
+                    print(f"[ERROR] Auto processor: {e}")
+                    await asyncio.sleep(30)
+        
+        # Start auto processor in background
+        auto_processor_task = asyncio.create_task(run_auto_processor())
+        
+    except Exception as e:
+        print(f"[WARNING] Auto PDF Processor not available: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Stop background services when server shuts down"""
+    global auto_processor_task
+    
+    if auto_processor_task:
+        auto_processor_task.cancel()
+        print("[OK] Auto PDF Processor stopped")
 
 # Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")

@@ -10,6 +10,10 @@ from typing import Dict, Any, List, Optional
 from dataclasses import dataclass
 import logging
 from datetime import datetime
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Try to import OpenAI, gracefully handle if not available
 try:
